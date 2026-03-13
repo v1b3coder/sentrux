@@ -75,7 +75,7 @@ pub fn evolution_def() -> ToolDef {
     }
 }
 
-fn handle_evolution(args: &Value, tier: &Tier, state: &mut McpState) -> Result<Value, String> {
+fn handle_evolution(args: &Value, _tier: &Tier, state: &mut McpState) -> Result<Value, String> {
     let root = state.scan_root.as_ref().ok_or("No scan root. Call 'scan' first.")?;
     let snap = state.cached_snapshot.as_ref().ok_or("No scan data. Call 'scan' first.")?;
     let days = args.get("days").and_then(|d| d.as_u64()).map(|d| d as u32);
@@ -98,15 +98,12 @@ fn handle_evolution(args: &Value, tier: &Tier, state: &mut McpState) -> Result<V
         "hotspot_count": report.hotspots.len()
     });
 
-    // Pro: file-level hotspot details. Free: grades + counts only.
-    if tier.is_pro() {
-        result["top_hotspots"] = json!(report.hotspots.iter().take(10).map(|h| json!({
-            "file": h.file,
-            "risk_score": h.risk_score,
-            "churn": h.churn_count,
-            "complexity": h.max_complexity
-        })).collect::<Vec<_>>());
-    }
+    result["top_hotspots"] = json!(report.hotspots.iter().take(10).map(|h| json!({
+        "file": h.file,
+        "risk_score": h.risk_score,
+        "churn": h.churn_count,
+        "complexity": h.max_complexity
+    })).collect::<Vec<_>>());
 
     state.cached_evolution = Some(report);
 
@@ -133,7 +130,7 @@ pub fn dsm_def() -> ToolDef {
     }
 }
 
-fn handle_dsm(args: &Value, tier: &Tier, state: &mut McpState) -> Result<Value, String> {
+fn handle_dsm(args: &Value, _tier: &Tier, state: &mut McpState) -> Result<Value, String> {
     let snap = state.cached_snapshot.as_ref().ok_or("No scan data. Call 'scan' first.")?;
     let dsm = crate::metrics::dsm::build_dsm(&snap.import_graph);
     let stats = crate::metrics::dsm::compute_stats(&dsm);
@@ -156,23 +153,15 @@ fn handle_dsm(args: &Value, tier: &Tier, state: &mut McpState) -> Result<Value, 
         }
     });
 
-    // Pro: full matrix text and cluster file lists. Free: summary stats only.
-    if tier.is_pro() {
-        let format = args.get("format").and_then(|f| f.as_str()).unwrap_or("stats");
-        if format == "text" {
-            result["matrix"] = json!(crate::metrics::dsm::render_text(&dsm, 30));
-        }
-        result["clusters"] = json!(stats.clusters.iter().take(5).map(|c| json!({
-            "level": c.level, "files": c.files.len(),
-            "internal_edges": c.internal_edges,
-            "file_list": c.files.iter().take(10).collect::<Vec<_>>()
-        })).collect::<Vec<_>>());
-    } else {
-        result["clusters"] = json!(stats.clusters.iter().take(5).map(|c| json!({
-            "level": c.level, "files_count": c.files.len(),
-            "internal_edges": c.internal_edges
-        })).collect::<Vec<_>>());
+    let format = args.get("format").and_then(|f| f.as_str()).unwrap_or("stats");
+    if format == "text" {
+        result["matrix"] = json!(crate::metrics::dsm::render_text(&dsm, 30));
     }
+    result["clusters"] = json!(stats.clusters.iter().take(5).map(|c| json!({
+        "level": c.level, "files": c.files.len(),
+        "internal_edges": c.internal_edges,
+        "file_list": c.files.iter().take(10).collect::<Vec<_>>()
+    })).collect::<Vec<_>>());
 
     Ok(result)
 }
@@ -197,7 +186,7 @@ pub fn test_gaps_def() -> ToolDef {
     }
 }
 
-fn handle_test_gaps(args: &Value, tier: &Tier, state: &mut McpState) -> Result<Value, String> {
+fn handle_test_gaps(args: &Value, _tier: &Tier, state: &mut McpState) -> Result<Value, String> {
     let snap = state.cached_snapshot.as_ref().ok_or("No scan data. Call 'scan' first.")?;
     let complexity = build_complexity_map(snap);
     let report = crate::metrics::testgap::compute_test_gaps(snap, &complexity);
@@ -211,17 +200,14 @@ fn handle_test_gaps(args: &Value, tier: &Tier, state: &mut McpState) -> Result<V
         "coverage_ratio": format!("{:.1}%", report.coverage_ratio * 100.0)
     });
 
-    // Pro: file-level gap details. Free: grade + counts only.
-    if tier.is_pro() {
-        let limit = args.get("limit").and_then(|l| l.as_u64()).unwrap_or(20) as usize;
-        result["riskiest_untested"] = json!(report.gaps.iter().take(limit).map(|g| json!({
-            "file": g.file, "risk_score": g.risk_score,
-            "complexity": g.max_complexity, "fan_in": g.fan_in, "lang": g.lang
-        })).collect::<Vec<_>>());
-        result["test_files_detail"] = json!(report.test_coverage.iter().take(10).map(|tc| json!({
-            "test": tc.test_file, "covers": tc.covers
-        })).collect::<Vec<_>>());
-    }
+    let limit = args.get("limit").and_then(|l| l.as_u64()).unwrap_or(20) as usize;
+    result["riskiest_untested"] = json!(report.gaps.iter().take(limit).map(|g| json!({
+        "file": g.file, "risk_score": g.risk_score,
+        "complexity": g.max_complexity, "fan_in": g.fan_in, "lang": g.lang
+    })).collect::<Vec<_>>());
+    result["test_files_detail"] = json!(report.test_coverage.iter().take(10).map(|tc| json!({
+        "test": tc.test_file, "covers": tc.covers
+    })).collect::<Vec<_>>());
 
     Ok(result)
 }

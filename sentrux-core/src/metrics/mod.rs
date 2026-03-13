@@ -337,6 +337,21 @@ fn is_dead_code_skip_file(file: &FileNode) -> bool {
     false
 }
 
+/// Check if a function name looks like an event handler or callback.
+/// JS/TS event handlers are assigned as callbacks (e.g., `el.ontrack = ontrack;`)
+/// and won't appear in direct call sites, causing false dead-code positives.
+fn is_event_handler_or_callback(name: &str) -> bool {
+    // "on" prefix: onclick, ontrack, onclose, onmessage, onopen, onerror, etc.
+    if name.starts_with("on") && name.len() > 2 && name.as_bytes()[2].is_ascii_lowercase() {
+        return true;
+    }
+    // "handle" prefix: handleClick, handleTouchEnd, handleSubmit, etc.
+    if name.starts_with("handle") && name.len() > 6 && name.as_bytes()[6].is_ascii_uppercase() {
+        return true;
+    }
+    false
+}
+
 /// Check if a function should be excluded from dead-code detection.
 fn is_excluded_function(func_name: &str, implicit: &HashSet<&str>) -> bool {
     // Skip test/bench functions
@@ -345,6 +360,10 @@ fn is_excluded_function(func_name: &str, implicit: &HashSet<&str>) -> bool {
     }
     // Skip trait impl methods (Foo::bar pattern)
     if func_name.contains("::") {
+        return true;
+    }
+    // Skip event handlers and callbacks (JS/TS pattern)
+    if is_event_handler_or_callback(func_name) {
         return true;
     }
     // Skip implicit entry points

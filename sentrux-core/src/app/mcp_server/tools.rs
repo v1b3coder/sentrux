@@ -26,6 +26,7 @@ pub fn build_registry() -> ToolRegistry {
     reg.register(handlers::health_def());
     reg.register(handlers::coupling_def());
     reg.register(handlers::cycles_def());
+    reg.register(handlers::file_info_def());
 
     // ── Architecture diagnostics ──
     reg.register(handlers::architecture_def());

@@ -7,10 +7,11 @@
 //! Free users see top-3 + total counts. Pro users see everything.
 
 use crate::analysis::scanner;
-use crate::core::snapshot::Snapshot;
+use crate::core::snapshot::{Snapshot, flatten_files_ref};
 use crate::license::Tier;
 use crate::metrics::arch;
 use crate::metrics;
+use crate::metrics::types::{CC_THRESHOLD_HIGH, FUNC_LENGTH_THRESHOLD, COG_THRESHOLD_HIGH, PARAM_THRESHOLD_HIGH, LARGE_FILE_THRESHOLD};
 use super::McpState;
 use super::registry::ToolDef;
 use serde_json::{json, Value};
@@ -102,7 +103,7 @@ pub fn health_def() -> ToolDef {
     }
 }
 
-fn handle_health(_args: &Value, tier: &Tier, state: &mut McpState) -> Result<Value, String> {
+fn handle_health(_args: &Value, _tier: &Tier, state: &mut McpState) -> Result<Value, String> {
     let h = state.cached_health.as_ref().ok_or("No scan data. Call 'scan' first.")?;
     let d = &h.dimensions;
 
@@ -129,25 +130,18 @@ fn handle_health(_args: &Value, tier: &Tier, state: &mut McpState) -> Result<Val
         "cross_module_edges": h.cross_module_edges
     });
 
-    // Pro: full file-level detail lists. Free: grades + counts only, no file paths.
-    if tier.is_pro() {
-        result["details"] = json!({
-            "complex_functions": h.complex_functions.iter().take(100).map(|f| json!({"file": f.file, "func": f.func, "cc": f.value})).collect::<Vec<_>>(),
-            "long_functions": h.long_functions.iter().take(100).map(|f| json!({"file": f.file, "func": f.func, "lines": f.value})).collect::<Vec<_>>(),
-            "cog_complex_functions": h.cog_complex_functions.iter().take(100).map(|f| json!({"file": f.file, "func": f.func, "cog": f.value})).collect::<Vec<_>>(),
-            "high_param_functions": h.high_param_functions.iter().take(100).map(|f| json!({"file": f.file, "func": f.func, "params": f.value})).collect::<Vec<_>>(),
-            "duplicate_groups": h.duplicate_groups.iter().take(100).map(|g| json!({"instances": g.instances.iter().map(|(file, func, lines)| json!({"file": file, "func": func, "lines": lines})).collect::<Vec<_>>()})).collect::<Vec<_>>(),
-            "dead_functions": h.dead_functions.iter().take(100).map(|f| json!({"file": f.file, "func": f.func, "lines": f.value})).collect::<Vec<_>>(),
-            "god_files": h.god_files.iter().map(|f| json!({"path": f.path, "fan_out": f.value})).collect::<Vec<_>>(),
-            "hotspot_files": h.hotspot_files.iter().map(|f| json!({"path": f.path, "fan_in": f.value})).collect::<Vec<_>>(),
-            "long_files": h.long_files.iter().take(10).map(|f| json!({"path": f.path, "lines": f.value})).collect::<Vec<_>>(),
-            "cycles": h.circular_dep_files.iter().collect::<Vec<_>>()
-        });
-    } else {
-        result["upgrade"] = json!({
-            "message": "Upgrade to Pro for file-level details: https://github.com/sentrux/sentrux"
-        });
-    }
+    result["details"] = json!({
+        "complex_functions": h.complex_functions.iter().take(100).map(|f| json!({"file": f.file, "func": f.func, "cc": f.value})).collect::<Vec<_>>(),
+        "long_functions": h.long_functions.iter().take(100).map(|f| json!({"file": f.file, "func": f.func, "lines": f.value})).collect::<Vec<_>>(),
+        "cog_complex_functions": h.cog_complex_functions.iter().take(100).map(|f| json!({"file": f.file, "func": f.func, "cog": f.value})).collect::<Vec<_>>(),
+        "high_param_functions": h.high_param_functions.iter().take(100).map(|f| json!({"file": f.file, "func": f.func, "params": f.value})).collect::<Vec<_>>(),
+        "duplicate_groups": h.duplicate_groups.iter().take(100).map(|g| json!({"instances": g.instances.iter().map(|(file, func, lines)| json!({"file": file, "func": func, "lines": lines})).collect::<Vec<_>>()})).collect::<Vec<_>>(),
+        "dead_functions": h.dead_functions.iter().take(100).map(|f| json!({"file": f.file, "func": f.func, "lines": f.value})).collect::<Vec<_>>(),
+        "god_files": h.god_files.iter().map(|f| json!({"path": f.path, "fan_out": f.value})).collect::<Vec<_>>(),
+        "hotspot_files": h.hotspot_files.iter().map(|f| json!({"path": f.path, "fan_in": f.value})).collect::<Vec<_>>(),
+        "long_files": h.long_files.iter().take(10).map(|f| json!({"path": f.path, "lines": f.value})).collect::<Vec<_>>(),
+        "cycles": h.circular_dep_files.iter().collect::<Vec<_>>()
+    });
 
     Ok(result)
 }
@@ -167,7 +161,7 @@ pub fn coupling_def() -> ToolDef {
     }
 }
 
-fn handle_coupling(_args: &Value, tier: &Tier, state: &mut McpState) -> Result<Value, String> {
+fn handle_coupling(_args: &Value, _tier: &Tier, state: &mut McpState) -> Result<Value, String> {
     let h = state.cached_health.as_ref().ok_or("No scan data. Call 'scan' first.")?;
     let mut result = json!({
         "coupling_score": h.coupling_score,
@@ -177,10 +171,8 @@ fn handle_coupling(_args: &Value, tier: &Tier, state: &mut McpState) -> Result<V
         "god_files_count": h.god_files.len(),
         "hotspot_files_count": h.hotspot_files.len()
     });
-    if tier.is_pro() {
-        result["god_files"] = json!(h.god_files.iter().map(|f| json!({"path": f.path, "fan_out": f.value})).collect::<Vec<_>>());
-        result["hotspot_files"] = json!(h.hotspot_files.iter().map(|f| json!({"path": f.path, "fan_in": f.value})).collect::<Vec<_>>());
-    }
+    result["god_files"] = json!(h.god_files.iter().map(|f| json!({"path": f.path, "fan_out": f.value})).collect::<Vec<_>>());
+    result["hotspot_files"] = json!(h.hotspot_files.iter().map(|f| json!({"path": f.path, "fan_in": f.value})).collect::<Vec<_>>());
     Ok(result)
 }
 
@@ -199,15 +191,13 @@ pub fn cycles_def() -> ToolDef {
     }
 }
 
-fn handle_cycles(_args: &Value, tier: &Tier, state: &mut McpState) -> Result<Value, String> {
+fn handle_cycles(_args: &Value, _tier: &Tier, state: &mut McpState) -> Result<Value, String> {
     let h = state.cached_health.as_ref().ok_or("No scan data. Call 'scan' first.")?;
     let mut result = json!({
         "cycle_count": h.circular_dep_count,
         "grade": h.dimensions.cycles.to_string()
     });
-    if tier.is_pro() {
-        result["cycles"] = json!(h.circular_dep_files);
-    }
+    result["cycles"] = json!(h.circular_dep_files);
     Ok(result)
 }
 
@@ -226,7 +216,7 @@ pub fn architecture_def() -> ToolDef {
     }
 }
 
-fn handle_architecture(_args: &Value, tier: &Tier, state: &mut McpState) -> Result<Value, String> {
+fn handle_architecture(_args: &Value, _tier: &Tier, state: &mut McpState) -> Result<Value, String> {
     let a = state.cached_arch.as_ref().ok_or("No scan data. Call 'scan' first.")?;
     let mut result = json!({
         "arch_grade": a.arch_grade.to_string(),
@@ -243,22 +233,19 @@ fn handle_architecture(_args: &Value, tier: &Tier, state: &mut McpState) -> Resu
         "attack_surface_ratio": format!("{:.1}%", a.attack_surface_ratio * 100.0),
         "total_graph_files": a.total_graph_files
     });
-    // Pro: file-level details (violation files, distance per module, blast file name)
-    if tier.is_pro() {
-        result["max_blast_file"] = json!(a.max_blast_file);
-        result["top_violations"] = json!(a.upward_violations.iter().take(5).map(|v| json!({
-            "from": v.from_file, "from_level": v.from_level,
-            "to": v.to_file, "to_level": v.to_level
-        })).collect::<Vec<_>>());
-        result["distance_from_main_sequence"] = json!(a.distance_metrics.iter().take(10).map(|m| json!({
-            "module": m.module,
-            "abstractness": format!("{:.2}", m.abstractness),
-            "instability": format!("{:.2}", m.instability),
-            "distance": format!("{:.3}", m.distance),
-            "abstract_types": m.abstract_count, "total_types": m.total_types,
-            "fan_in": m.fan_in, "fan_out": m.fan_out
-        })).collect::<Vec<_>>());
-    }
+    result["max_blast_file"] = json!(a.max_blast_file);
+    result["top_violations"] = json!(a.upward_violations.iter().take(5).map(|v| json!({
+        "from": v.from_file, "from_level": v.from_level,
+        "to": v.to_file, "to_level": v.to_level
+    })).collect::<Vec<_>>());
+    result["distance_from_main_sequence"] = json!(a.distance_metrics.iter().take(10).map(|m| json!({
+        "module": m.module,
+        "abstractness": format!("{:.2}", m.abstractness),
+        "instability": format!("{:.2}", m.instability),
+        "distance": format!("{:.3}", m.distance),
+        "abstract_types": m.abstract_count, "total_types": m.total_types,
+        "fan_in": m.fan_in, "fan_out": m.fan_out
+    })).collect::<Vec<_>>());
     Ok(result)
 }
 
@@ -269,7 +256,7 @@ fn handle_architecture(_args: &Value, tier: &Tier, state: &mut McpState) -> Resu
 pub fn blast_radius_def() -> ToolDef {
     ToolDef {
         name: "blast_radius",
-        description: "Get the blast radius for a specific file: how many files are transitively affected if this file changes. (Pro)",
+        description: "Get the blast radius for a specific file: how many files are transitively affected if this file changes.",
         input_schema: json!({
             "type": "object",
             "properties": {
@@ -277,7 +264,7 @@ pub fn blast_radius_def() -> ToolDef {
             },
             "required": ["file"]
         }),
-        min_tier: Tier::Pro,
+        min_tier: Tier::Free,
         handler: handle_blast_radius,
         invalidates_evolution: false,
     }
@@ -319,23 +306,20 @@ pub fn hottest_def() -> ToolDef {
     }
 }
 
-fn handle_hottest(args: &Value, tier: &Tier, state: &mut McpState) -> Result<Value, String> {
+fn handle_hottest(args: &Value, _tier: &Tier, state: &mut McpState) -> Result<Value, String> {
     let a = state.cached_arch.as_ref().ok_or("No scan data. Call 'scan' first.")?;
     let mut result = json!({
         "max_blast_radius": a.max_blast_radius,
         "total_files_in_graph": a.total_graph_files
     });
-    // Pro: file-level list. Free: max blast radius only.
-    if tier.is_pro() {
-        let limit = args.get("limit").and_then(|l| l.as_u64()).unwrap_or(10) as usize;
-        let mut files: Vec<(&String, &u32)> = a.blast_radius.iter().collect();
-        files.sort_unstable_by(|a, b| b.1.cmp(a.1));
-        files.truncate(limit);
-        result["hottest_files"] = json!(files.iter().map(|(path, &radius)| json!({
-            "path": path, "blast_radius": radius,
-            "level": a.levels.get(*path).copied().unwrap_or(0)
-        })).collect::<Vec<_>>());
-    }
+    let limit = args.get("limit").and_then(|l| l.as_u64()).unwrap_or(10) as usize;
+    let mut files: Vec<(&String, &u32)> = a.blast_radius.iter().collect();
+    files.sort_unstable_by(|a, b| b.1.cmp(a.1));
+    files.truncate(limit);
+    result["hottest_files"] = json!(files.iter().map(|(path, &radius)| json!({
+        "path": path, "blast_radius": radius,
+        "level": a.levels.get(*path).copied().unwrap_or(0)
+    })).collect::<Vec<_>>());
     Ok(result)
 }
 
@@ -346,7 +330,7 @@ fn handle_hottest(args: &Value, tier: &Tier, state: &mut McpState) -> Result<Val
 pub fn level_def() -> ToolDef {
     ToolDef {
         name: "level",
-        description: "Get the dependency level of a specific file. Level 0 = leaf (depends on nothing), higher = depends on more layers. (Pro)",
+        description: "Get the dependency level of a specific file. Level 0 = leaf (depends on nothing), higher = depends on more layers.",
         input_schema: json!({
             "type": "object",
             "properties": {
@@ -354,7 +338,7 @@ pub fn level_def() -> ToolDef {
             },
             "required": ["file"]
         }),
-        min_tier: Tier::Pro,
+        min_tier: Tier::Free,
         handler: handle_level,
         invalidates_evolution: false,
     }
@@ -493,37 +477,21 @@ pub fn check_rules_def() -> ToolDef {
     }
 }
 
-fn handle_check_rules(_args: &Value, tier: &Tier, state: &mut McpState) -> Result<Value, String> {
+fn handle_check_rules(_args: &Value, _tier: &Tier, state: &mut McpState) -> Result<Value, String> {
     let root = state.scan_root.as_ref().ok_or("No scan root. Call 'scan' first.")?;
     let h = state.cached_health.as_ref().ok_or("No scan data. Call 'scan' first.")?;
     let a = state.cached_arch.as_ref().ok_or("No scan data. Call 'scan' first.")?;
     let snap = state.cached_snapshot.as_ref().ok_or("No scan data. Call 'scan' first.")?;
 
-    let mut config = crate::metrics::rules::RulesConfig::try_load(root)
+    let config = crate::metrics::rules::RulesConfig::try_load(root)
         .ok_or_else(|| format!(
             "No rules file found at {}/.sentrux/rules.toml. Create one to define architectural constraints.",
             root.display()
         ))?;
 
-    // Free tier: max 3 rules (constraints count as 1 if any thresholds set,
-    // plus layers and boundaries each count as 1 rule).
-    let total_rules = config.constraints.count_active()
-        + config.layers.len()
-        + config.boundaries.len();
-    let truncated = if !tier.is_pro() && total_rules > 3 {
-        // Keep constraints (1 rule) + first 2 of layers/boundaries
-        let mut remaining = 3usize.saturating_sub(if config.constraints.count_active() > 0 { 1 } else { 0 });
-        config.layers.truncate(remaining.min(config.layers.len()));
-        remaining = remaining.saturating_sub(config.layers.len());
-        config.boundaries.truncate(remaining.min(config.boundaries.len()));
-        true
-    } else {
-        false
-    };
-
     let result = crate::metrics::rules::check_rules(&config, h, a, &snap.import_graph);
 
-    let mut response = json!({
+    let response = json!({
         "pass": result.passed,
         "rules_checked": result.rules_checked,
         "violation_count": result.violations.len(),
@@ -536,12 +504,203 @@ fn handle_check_rules(_args: &Value, tier: &Tier, state: &mut McpState) -> Resul
         "summary": if result.passed { "✓ All architectural rules pass" }
             else { "✗ Architectural rule violations detected" }
     });
-    if truncated {
-        response["truncated"] = json!({
-            "total_rules_defined": total_rules,
-            "rules_checked": result.rules_checked,
-            "message": "Free tier checks up to 3 rules. Upgrade to Pro for unlimited: https://github.com/sentrux/sentrux"
-        });
-    }
     Ok(response)
+}
+
+// ══════════════════════════════════════════════════════════════════
+//  FILE INFO
+// ══════════════════════════════════════════════════════════════════
+
+pub fn file_info_def() -> ToolDef {
+    ToolDef {
+        name: "file_info",
+        description: "Get per-file quality metrics: function-level complexity, coupling (fan-in/out, instability), architecture position (level, blast radius), and detected issues. Use this to understand what's wrong with a specific file and how to fix it.",
+        input_schema: json!({
+            "type": "object",
+            "properties": {
+                "file": { "type": "string", "description": "Relative path to the file (e.g., 'src/app.rs')" }
+            },
+            "required": ["file"]
+        }),
+        min_tier: Tier::Free,
+        handler: handle_file_info,
+        invalidates_evolution: false,
+    }
+}
+
+fn handle_file_info(args: &Value, _tier: &Tier, state: &mut McpState) -> Result<Value, String> {
+    let snap = state.cached_snapshot.as_ref().ok_or("No scan data. Call 'scan' first.")?;
+    let h = state.cached_health.as_ref().ok_or("No scan data. Call 'scan' first.")?;
+    let a = state.cached_arch.as_ref().ok_or("No scan data. Call 'scan' first.")?;
+
+    let raw_file = args.get("file").and_then(|f| f.as_str())
+        .ok_or("Missing 'file' argument")?;
+
+    // Normalize: strip leading "./" and whitespace so "  ./src/app.rs" matches "src/app.rs"
+    let file = raw_file.trim().trim_start_matches("./");
+
+    // ── 1. Find the FileNode ──
+    let all_files = flatten_files_ref(&snap.root);
+    let node = all_files.iter()
+        .find(|n| n.path == file || n.path.ends_with(&format!("/{}", file)))
+        .ok_or_else(|| format!("File '{}' not found in scan. Check the path is relative to the scanned root.", file))?;
+
+    // ── 2. Basic info ──
+    let basic = json!({
+        "lines": node.lines,
+        "logic": node.logic,
+        "comments": node.comments,
+        "blanks": node.blanks,
+        "language": node.lang,
+        "function_count": node.funcs
+    });
+
+    // ── 3. Functions with per-function issue tags ──
+    let mut functions_json: Vec<Value> = Vec::new();
+    if let Some(sa) = &node.sa {
+        if let Some(funcs) = &sa.functions {
+            let mut scored: Vec<(usize, &crate::core::types::FuncInfo)> = funcs.iter()
+                .enumerate()
+                .collect();
+            // Sort by worst issue count (descending) for tier truncation
+            scored.sort_by(|a, b| {
+                let score = |f: &crate::core::types::FuncInfo| -> u32 {
+                    let mut s = 0;
+                    if f.cc.filter(|&v| v > CC_THRESHOLD_HIGH).is_some() { s += 1; }
+                    if f.ln > FUNC_LENGTH_THRESHOLD { s += 1; }
+                    if f.cog.filter(|&v| v > COG_THRESHOLD_HIGH).is_some() { s += 1; }
+                    if f.pc.filter(|&v| v > PARAM_THRESHOLD_HIGH).is_some() { s += 1; }
+                    s
+                };
+                score(b.1).cmp(&score(a.1))
+            });
+
+            let limit = scored.len();
+            for &(_, f) in scored.iter().take(limit) {
+                let mut issues: Vec<&str> = Vec::new();
+                if f.cc.filter(|&v| v > CC_THRESHOLD_HIGH).is_some() { issues.push("complex"); }
+                if f.ln > FUNC_LENGTH_THRESHOLD { issues.push("long"); }
+                if f.cog.filter(|&v| v > COG_THRESHOLD_HIGH).is_some() { issues.push("cognitive"); }
+                if f.pc.filter(|&v| v > PARAM_THRESHOLD_HIGH).is_some() { issues.push("high_params"); }
+
+                functions_json.push(json!({
+                    "name": f.n,
+                    "lines": f.ln,
+                    "cc": f.cc,
+                    "cognitive": f.cog,
+                    "params": f.pc,
+                    "issues": issues
+                }));
+            }
+        }
+    }
+
+    // ── 4. Coupling from import_graph (single O(E) pass) ──
+    let mut fan_in: usize = 0;
+    let mut fan_out: usize = 0;
+    let mut imports: Vec<&str> = Vec::new();
+    let mut imported_by: Vec<&str> = Vec::new();
+    for edge in &snap.import_graph {
+        if edge.from_file == file {
+            fan_out += 1;
+            imports.push(&edge.to_file);
+        }
+        if edge.to_file == file {
+            fan_in += 1;
+            imported_by.push(&edge.from_file);
+        }
+    }
+    let instability = if fan_in + fan_out > 0 {
+        fan_out as f64 / (fan_in + fan_out) as f64
+    } else {
+        0.0
+    };
+
+    let coupling = json!({
+        "fan_in": fan_in,
+        "fan_out": fan_out,
+        "instability": format!("{:.3}", instability),
+        "imports": imports,
+        "imported_by": imported_by
+    });
+
+    // ── 5. Architecture position ──
+    let architecture = json!({
+        "level": a.levels.get(file).copied(),
+        "max_level": a.max_level,
+        "blast_radius": a.blast_radius.get(file).copied(),
+        "exec_depth": snap.exec_depth.get(file).copied()
+    });
+
+    // ── 6. Issues from HealthReport ──
+    let is_god_file = h.god_files.iter().any(|f| f.path == file);
+    let is_hotspot = h.hotspot_files.iter().any(|f| f.path == file);
+    let is_large_file = node.lines > LARGE_FILE_THRESHOLD;
+    let in_cycle = h.circular_dep_files.iter().any(|cycle| cycle.contains(&file.to_string()));
+    let complex_functions = h.complex_functions.iter().filter(|f| f.file == file).count();
+    let long_functions = h.long_functions.iter().filter(|f| f.file == file).count();
+    let cog_complex_functions = h.cog_complex_functions.iter().filter(|f| f.file == file).count();
+    let high_param_functions = h.high_param_functions.iter().filter(|f| f.file == file).count();
+    let dead_functions = h.dead_functions.iter().filter(|f| f.file == file).count();
+    let duplicate_functions = h.duplicate_groups.iter()
+        .flat_map(|g| &g.instances)
+        .filter(|(f, _, _)| f == file)
+        .count();
+
+    let issues = json!({
+        "is_god_file": is_god_file,
+        "is_hotspot": is_hotspot,
+        "is_large_file": is_large_file,
+        "in_cycle": in_cycle,
+        "complex_functions": complex_functions,
+        "long_functions": long_functions,
+        "cog_complex_functions": cog_complex_functions,
+        "high_param_functions": high_param_functions,
+        "dead_functions": dead_functions,
+        "duplicate_functions": duplicate_functions
+    });
+
+    // ── 7. Flags ──
+    let is_test = crate::metrics::testgap::is_test_file(file);
+    let is_entry_point = snap.entry_points.iter().any(|ep| ep.file == file);
+    let tags: Vec<&str> = node.sa.as_ref()
+        .and_then(|sa| sa.tags.as_ref())
+        .map(|t| t.iter().map(|s| s.as_str()).collect())
+        .unwrap_or_default();
+
+    let flags = json!({
+        "is_test": is_test,
+        "is_entry_point": is_entry_point,
+        "tags": tags
+    });
+
+    // ── 8. Summary ──
+    let mut issue_parts: Vec<String> = Vec::new();
+    if is_god_file { issue_parts.push("god file (fan-out >15)".into()); }
+    if is_hotspot { issue_parts.push("hotspot (high fan-in + unstable)".into()); }
+    if is_large_file { issue_parts.push(format!("file exceeds {} lines", LARGE_FILE_THRESHOLD)); }
+    if in_cycle { issue_parts.push("in circular dependency".into()); }
+    if complex_functions > 0 { issue_parts.push(format!("{} complex function(s) (CC>{})", complex_functions, CC_THRESHOLD_HIGH)); }
+    if long_functions > 0 { issue_parts.push(format!("{} long function(s) (>{}L)", long_functions, FUNC_LENGTH_THRESHOLD)); }
+    if cog_complex_functions > 0 { issue_parts.push(format!("{} cognitively complex function(s) (cog>{})", cog_complex_functions, COG_THRESHOLD_HIGH)); }
+    if high_param_functions > 0 { issue_parts.push(format!("{} high-param function(s) (>{})", high_param_functions, PARAM_THRESHOLD_HIGH)); }
+    if dead_functions > 0 { issue_parts.push(format!("{} dead function(s)", dead_functions)); }
+    if duplicate_functions > 0 { issue_parts.push(format!("{} duplicate function(s)", duplicate_functions)); }
+
+    let summary = if issue_parts.is_empty() {
+        "No issues detected.".to_string()
+    } else {
+        format!("{} issue(s): {}", issue_parts.len(), issue_parts.join(", "))
+    };
+
+    Ok(json!({
+        "file": file,
+        "basic": basic,
+        "functions": functions_json,
+        "coupling": coupling,
+        "architecture": architecture,
+        "issues": issues,
+        "flags": flags,
+        "summary": summary
+    }))
 }
